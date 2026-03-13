@@ -41,11 +41,52 @@ composer install
 cp .env.example .env
 php artisan key:generate
 
-# Run migrations
-php artisan migrate
+# Run migrations and seed
+php artisan migrate --seed
 
 # Start Horizon (queue worker)
 php artisan horizon
+```
+
+### Seeded Test Credentials
+
+| Resource | Value |
+|----------|-------|
+| Foodics Bank API Key | `foodics-api-key-2025` |
+| Foodics Webhook Secret | `foodics-webhook-secret-2025` |
+| Acme Bank API Key | `acme-api-key-2025` |
+| Acme Webhook Secret | `acme-webhook-secret-2025` |
+| Client Token | `client-webhook-token-2025` |
+
+### Example Requests
+
+**Send a Foodics webhook:**
+```bash
+BODY='20250615156,50#202506159000099#note/test payment'
+SIGNATURE=$(echo -n "$BODY" | openssl dgst -sha256 -hmac "foodics-webhook-secret-2025" | awk '{print $2}')
+
+curl -X POST http://localhost:8000/api/webhooks \
+  -H "Authorization: Bearer foodics-api-key-2025" \
+  -H "X-Signature: $SIGNATURE" \
+  -H "X-Client-Token: client-webhook-token-2025" \
+  -H "Content-Type: text/plain" \
+  -d "$BODY"
+```
+
+**Generate an XML payment:**
+```bash
+curl -X POST http://localhost:8000/api/transfers \
+  -H "Content-Type: application/json" \
+  -d '{
+    "reference": "REF001",
+    "date": "2025-06-15",
+    "amount": 1500.00,
+    "currency": "SAR",
+    "sender_account": "SA1234567890",
+    "receiver_bank_code": "RJHI",
+    "receiver_account": "SA0987654321",
+    "beneficiary_name": "John Doe"
+  }'
 ```
 
 ### Running Tests
