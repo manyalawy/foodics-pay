@@ -1,59 +1,203 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Foodics Pay — Online Wallet
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+An online wallet application that receives money via bank webhooks (multiple formats) and generates XML payment requests for outgoing transfers. Built with Laravel, Redis, and Horizon for production-grade scalability.
 
-## About Laravel
+## Architecture Overview
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+```
+Bank Webhook → Auth Middleware → Queue Job → Parser → Database
+                (API Key + HMAC + Client Token)     (insertOrIgnore)
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+Transfer Request → Validation → DTO → XML Builder → XML Response
+```
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+### Key Design Decisions
 
-## Learning Laravel
+- **Strategy Pattern for Parsers**: Each bank has its own parser implementing `BankParserInterface`. Adding a new bank requires only a new parser class and a one-line registration in `BankParserFactory`.
+- **Queue-First Ingestion**: Webhooks are accepted immediately (202) and processed asynchronously via Redis/Horizon. This ensures low latency for webhook responses even under heavy load.
+- **Idempotency**: Transactions use a composite unique constraint `(bank_id, reference)` with `insertOrIgnore()` for safe duplicate handling.
+- **Three-Layer Authentication**: API key (bank identity) → HMAC-SHA256 (payload integrity) → Client token (client identity).
+- **Security**: API keys stored as SHA-256 hashes, webhook secrets encrypted at rest via Laravel's `encrypted` cast.
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.
+## Setup
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+### Requirements
 
-## Laravel Sponsors
+- PHP 8.2+
+- MySQL 8.0+
+- Redis 6.0+
+- Composer
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+### Installation
 
-### Premium Partners
+```bash
+# Install dependencies
+composer install
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+# Configure environment
+cp .env.example .env
+php artisan key:generate
 
-## Contributing
+# Edit .env with your database and Redis credentials
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+# Run migrations
+php artisan migrate
 
-## Code of Conduct
+# Start Horizon (queue worker)
+php artisan horizon
+```
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+### Running Tests
 
-## Security Vulnerabilities
+```bash
+php artisan test
+```
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+Tests use SQLite in-memory database and sync queue driver — no external services needed.
 
-## License
+## API Endpoints
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+### POST /api/webhooks
+
+Receives bank webhook data. Requires three authentication headers.
+
+**Headers:**
+| Header | Description |
+|--------|-------------|
+| `Authorization` | `Bearer {api_key}` — identifies the bank |
+| `X-Signature` | HMAC-SHA256 of request body using bank's webhook secret |
+| `X-Client-Token` | Identifies the client receiving funds |
+
+**Body:** Raw text in bank-specific format (see Bank Formats below).
+
+**Response:** `202 Accepted`
+
+### POST /api/transfers
+
+Generates an XML payment request.
+
+**Body (JSON):**
+```json
+{
+    "reference": "REF001",
+    "date": "2025-06-15",
+    "amount": 1500.00,
+    "currency": "SAR",
+    "sender_account": "SA1234567890",
+    "receiver_bank_code": "RJHI",
+    "receiver_account": "SA0987654321",
+    "beneficiary_name": "John Doe",
+    "notes": ["Payment for invoice 123"],
+    "payment_type": 1,
+    "charge_details": "OUR"
+}
+```
+
+Optional fields: `notes` (omitted from XML if empty), `payment_type` (omitted if 99), `charge_details` (omitted if "SHA").
+
+**Response:** `200 OK` with `Content-Type: application/xml`
+
+### Ingestion Control
+
+- `POST /api/ingestion/pause` — Pauses webhook processing
+- `POST /api/ingestion/resume` — Resumes webhook processing
+- `GET /api/ingestion/status` — Returns `{"paused": true|false}`
+
+Also available as artisan commands:
+```bash
+php artisan ingestion:pause
+php artisan ingestion:resume
+```
+
+## Bank Formats
+
+### Foodics Bank
+
+```
+{YYYYMMDD}{amount}#{reference}#{key/value/key/value}
+```
+
+Example:
+```
+20250615156,50#202506159000001#note/debt payment march/internal_reference/A462JE81
+```
+
+### Acme Bank
+
+```
+{amount}//{reference}//{YYYYMMDD}
+```
+
+Example:
+```
+156,50//202506159000001//20250615
+```
+
+Both formats: amounts use comma as decimal separator, multiple transactions separated by newlines.
+
+## Adding a New Bank
+
+1. Create a parser class implementing `BankParserInterface`:
+
+```php
+// app/Services/Parsers/NewBankParser.php
+class NewBankParser implements BankParserInterface
+{
+    public function parse(string $rawBody): Collection
+    {
+        // Parse the bank's specific format
+        // Return Collection of TransactionData DTOs
+    }
+}
+```
+
+2. Register in `BankParserFactory`:
+
+```php
+private array $parsers = [
+    'foodics' => FoodicsBankParser::class,
+    'acme' => AcmeBankParser::class,
+    'newbank' => NewBankParser::class,  // Add this line
+];
+```
+
+3. Create a bank record in the database with the new bank's credentials.
+
+## Project Structure
+
+```
+app/
+├── Contracts/BankParserInterface.php      # Parser contract
+├── DTOs/
+│   ├── TransactionData.php                # Webhook transaction DTO
+│   └── PaymentRequestData.php             # Transfer request DTO
+├── Http/
+│   ├── Controllers/Api/
+│   │   ├── WebhookController.php          # Webhook endpoint
+│   │   ├── TransferController.php         # XML transfer endpoint
+│   │   └── IngestionController.php        # Pause/resume control
+│   ├── Middleware/
+│   │   └── VerifyBankWebhook.php          # Three-layer auth
+│   └── Requests/
+│       └── TransferRequest.php            # Transfer validation
+├── Jobs/
+│   └── ProcessWebhookJob.php              # Async webhook processing
+├── Models/
+│   ├── Bank.php
+│   ├── Client.php
+│   └── Transaction.php
+└── Services/
+    ├── Parsers/
+    │   ├── BankParserFactory.php           # Resolves parser by bank name
+    │   ├── FoodicsBankParser.php
+    │   └── AcmeBankParser.php
+    └── PaymentXmlBuilder.php              # XML generation
+```
+
+## Scalability
+
+- **Horizon** manages Redis-backed queue workers with auto-scaling
+- **Chunked inserts** (batches of 500) prevent memory issues on large webhooks
+- **Cached lookups** for bank and client authentication reduce database load
+- **Pause/resume** mechanism allows controlled ingestion during maintenance
+- Performance tested: 1,000 transactions process in < 1 second

@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Jobs\ProcessWebhookJob;
 use App\Models\Bank;
 use App\Models\Client;
+use App\Services\Parsers\BankParserFactory;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Queue;
@@ -28,7 +29,7 @@ class IngestionPauseTest extends TestCase
             $bank->id,
         );
 
-        $job->handle(app(\App\Services\Parsers\BankParserFactory::class));
+        $job->handle(app(BankParserFactory::class));
 
         $this->assertDatabaseMissing('transactions', ['reference' => 'REF001']);
     }
@@ -46,7 +47,7 @@ class IngestionPauseTest extends TestCase
             $bank->id,
         );
 
-        $job->handle(app(\App\Services\Parsers\BankParserFactory::class));
+        $job->handle(app(BankParserFactory::class));
 
         $this->assertDatabaseHas('transactions', [
             'reference' => 'REF001',

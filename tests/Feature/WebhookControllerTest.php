@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Bank;
 use App\Models\Client;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
 
 class WebhookControllerTest extends TestCase
@@ -30,7 +31,7 @@ class WebhookControllerTest extends TestCase
         $this->client = Client::factory()->create();
     }
 
-    private function sendWebhook(string $body, array $headers = []): \Illuminate\Testing\TestResponse
+    private function sendWebhook(string $body, array $headers = []): TestResponse
     {
         $defaultHeaders = [
             'Authorization' => "Bearer {$this->apiKey}",
