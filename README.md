@@ -236,10 +236,12 @@ app/
     └── PaymentXmlBuilder.php              # XML generation
 ```
 
-## Scalability
+## Scalability & Reliability
 
 - **Horizon** manages Redis-backed queue workers with auto-scaling
 - **Chunked inserts** (batches of 500) prevent memory issues on large webhooks
 - **Cached lookups** for bank and client authentication reduce database load
 - **Pause/resume** mechanism allows controlled ingestion during maintenance
+- **Retry with backoff** — failed jobs retry 3 times (after 10s, 30s, 60s) before moving to `failed_jobs` table
+- **Failed job recovery** — inspect with `php artisan queue:failed`, retry with `php artisan queue:retry {id}`
 - Performance tested: 1,000 transactions process in < 1 second
