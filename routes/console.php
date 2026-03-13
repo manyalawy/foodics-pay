@@ -1,8 +1,14 @@
 <?php
 
-use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Cache;
 
-Artisan::command('inspire', function () {
-    $this->comment(Inspiring::quote());
-})->purpose('Display an inspiring quote');
+Artisan::command('ingestion:pause', function () {
+    Cache::put('ingestion_paused', true);
+    $this->info('Ingestion paused.');
+})->purpose('Pause webhook ingestion processing');
+
+Artisan::command('ingestion:resume', function () {
+    Cache::forget('ingestion_paused');
+    $this->info('Ingestion resumed.');
+})->purpose('Resume webhook ingestion processing');
