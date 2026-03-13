@@ -244,4 +244,5 @@ app/
 - **Pause/resume** mechanism allows controlled ingestion during maintenance
 - **Retry with backoff** — failed jobs retry 3 times (after 10s, 30s, 60s) before moving to `failed_jobs` table
 - **Failed job recovery** — inspect with `php artisan queue:failed`, retry with `php artisan queue:retry {id}`
+- **Circuit breaker** — if 10 jobs fail within 5 minutes, ingestion auto-pauses to prevent cascading failures. Threshold is configurable via `CIRCUIT_BREAKER_THRESHOLD` env variable. Resume with `php artisan ingestion:resume`
 - Performance tested: 1,000 transactions process in < 1 second
