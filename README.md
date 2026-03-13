@@ -31,14 +31,15 @@ Transfer Request → Validation → DTO → XML Builder → XML Response
 ### Installation
 
 ```bash
+# Start MySQL and Redis
+docker-compose up -d
+
 # Install dependencies
 composer install
 
 # Configure environment
 cp .env.example .env
 php artisan key:generate
-
-# Edit .env with your database and Redis credentials
 
 # Run migrations
 php artisan migrate
