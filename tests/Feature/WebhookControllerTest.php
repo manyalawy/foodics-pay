@@ -49,6 +49,27 @@ class WebhookControllerTest extends TestCase
         return $this->call('POST', '/api/webhooks', [], [], [], $server, $body);
     }
 
+    public function test_returns_413_when_body_exceeds_max_size(): void
+    {
+        config()->set('webhook.max_body_size', 100);
+
+        $body = str_repeat('a', 101);
+
+        $this->sendWebhook($body)->assertStatus(413)
+            ->assertJson(['error' => 'Payload too large.']);
+    }
+
+    public function test_accepts_body_at_exactly_max_size(): void
+    {
+        config()->set('webhook.max_body_size', 100);
+
+        $body = str_repeat('a', 100);
+
+        $response = $this->sendWebhook($body);
+
+        $this->assertNotEquals(413, $response->getStatusCode());
+    }
+
     public function test_returns_401_for_missing_api_key(): void
     {
         $server = $this->transformHeadersToServerVars([]);

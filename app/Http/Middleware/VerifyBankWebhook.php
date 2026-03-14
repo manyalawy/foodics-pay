@@ -13,6 +13,11 @@ class VerifyBankWebhook
 {
     public function handle(Request $request, Closure $next): Response
     {
+        $maxBodySize = config('webhook.max_body_size');
+        if (strlen($request->getContent()) > $maxBodySize) {
+            return response()->json(['error' => 'Payload too large.'], 413);
+        }
+
         $bank = $this->authenticateBank($request);
         if (! $bank) {
             return response()->json(['error' => 'Invalid API key.'], 401);
