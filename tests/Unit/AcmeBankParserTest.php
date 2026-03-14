@@ -21,8 +21,8 @@ class AcmeBankParserTest extends TestCase
 
         $result = $this->parser->parse($body);
 
-        $this->assertCount(1, $result);
-        $tx = $result->first();
+        $this->assertCount(1, $result->transactions);
+        $tx = $result->transactions->first();
         $this->assertEquals('202506159000001', $tx->reference);
         $this->assertEquals('156.50', $tx->amount);
         $this->assertEquals('2025-06-15', $tx->date->toDateString());
@@ -35,9 +35,9 @@ class AcmeBankParserTest extends TestCase
 
         $result = $this->parser->parse($body);
 
-        $this->assertCount(2, $result);
-        $this->assertEquals('REF001', $result->first()->reference);
-        $this->assertEquals('REF002', $result->last()->reference);
+        $this->assertCount(2, $result->transactions);
+        $this->assertEquals('REF001', $result->transactions->first()->reference);
+        $this->assertEquals('REF002', $result->transactions->last()->reference);
     }
 
     public function test_normalizes_amount_comma_to_dot(): void
@@ -46,7 +46,7 @@ class AcmeBankParserTest extends TestCase
 
         $result = $this->parser->parse($body);
 
-        $this->assertEquals('1234.56', $result->first()->amount);
+        $this->assertEquals('1234.56', $result->transactions->first()->amount);
     }
 
     public function test_parses_date_correctly(): void
@@ -55,7 +55,7 @@ class AcmeBankParserTest extends TestCase
 
         $result = $this->parser->parse($body);
 
-        $this->assertEquals('2025-12-31', $result->first()->date->toDateString());
+        $this->assertEquals('2025-12-31', $result->transactions->first()->date->toDateString());
     }
 
     public function test_filters_empty_lines(): void
@@ -64,7 +64,7 @@ class AcmeBankParserTest extends TestCase
 
         $result = $this->parser->parse($body);
 
-        $this->assertCount(2, $result);
+        $this->assertCount(2, $result->transactions);
     }
 
     public function test_skips_malformed_lines(): void
@@ -73,7 +73,10 @@ class AcmeBankParserTest extends TestCase
 
         $result = $this->parser->parse($body);
 
-        $this->assertCount(2, $result);
+        $this->assertCount(2, $result->transactions);
+        $this->assertTrue($result->hasErrors());
+        $this->assertCount(1, $result->errors);
+        $this->assertEquals(2, $result->errors[0]['line']);
     }
 
     public function test_skips_lines_with_negative_amounts(): void
@@ -82,7 +85,8 @@ class AcmeBankParserTest extends TestCase
 
         $result = $this->parser->parse($body);
 
-        $this->assertCount(0, $result);
+        $this->assertCount(0, $result->transactions);
+        $this->assertTrue($result->hasErrors());
     }
 
     public function test_skips_lines_with_invalid_dates(): void
@@ -91,6 +95,7 @@ class AcmeBankParserTest extends TestCase
 
         $result = $this->parser->parse($body);
 
-        $this->assertCount(0, $result);
+        $this->assertCount(0, $result->transactions);
+        $this->assertTrue($result->hasErrors());
     }
 }

@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\DTOs\ParseResult;
 use App\Models\Bank;
 use App\Services\Parsers\BankParserFactory;
 use Illuminate\Bus\Queueable;
@@ -40,9 +41,13 @@ class ProcessWebhookJob implements ShouldQueue
 
         $bank = Bank::findOrFail($this->bankId);
         $parser = $parserFactory->make($bank->name);
-        $transactions = $parser->parse($this->rawBody);
+        $result = $parser->parse($this->rawBody);
 
-        $transactions->chunk(500)->each(function ($chunk) {
+        if ($result->hasErrors()) {
+            $this->logParseErrors($result, $bank);
+        }
+
+        $result->transactions->chunk(500)->each(function ($chunk) {
             $records = $chunk->map(fn ($tx) => [
                 'client_id' => $this->clientId,
                 'bank_id' => $this->bankId,
@@ -56,6 +61,30 @@ class ProcessWebhookJob implements ShouldQueue
 
             DB::table('transactions')->insertOrIgnore($records);
         });
+    }
+
+    private function logParseErrors(ParseResult $result, Bank $bank): void
+    {
+        $context = [
+            'bank_id' => $this->bankId,
+            'bank_name' => $bank->name,
+            'client_id' => $this->clientId,
+            'total_lines' => $result->totalLines(),
+            'successful_lines' => $result->transactions->count(),
+            'failed_lines' => $result->failedLines(),
+            'errors' => $result->errors,
+        ];
+
+        $threshold = config('webhook.malformed_line_alert_threshold', 0.5);
+        $failedRatio = $result->totalLines() > 0
+            ? $result->failedLines() / $result->totalLines()
+            : 0;
+
+        if ($result->transactions->isEmpty() || $failedRatio >= $threshold) {
+            Log::error('High malformed line ratio in webhook payload.', $context);
+        } else {
+            Log::warning('Some malformed lines in webhook payload.', $context);
+        }
     }
 
     public function failed(Throwable $exception): void

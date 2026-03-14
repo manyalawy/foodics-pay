@@ -3,41 +3,31 @@
 namespace App\Services\Parsers;
 
 use App\Contracts\BankParserInterface;
+use App\DTOs\ParseResult;
 use App\DTOs\TransactionData;
 use Carbon\CarbonImmutable;
-use Illuminate\Support\Collection;
-use Psr\Log\LoggerInterface;
-use Psr\Log\NullLogger;
 
 abstract class AbstractBankParser implements BankParserInterface
 {
-    private LoggerInterface $logger;
-
-    public function __construct(?LoggerInterface $logger = null)
-    {
-        $this->logger = $logger ?? $this->resolveLogger();
-    }
-
-    /** @return Collection<int, TransactionData> */
-    public function parse(string $rawBody): Collection
+    public function parse(string $rawBody): ParseResult
     {
         $lines = $this->splitLines($rawBody);
+        $transactions = [];
+        $errors = [];
 
-        return collect($lines)
-            ->map(function (string $line) {
-                try {
-                    return $this->parseLine($line);
-                } catch (\Throwable $e) {
-                    $this->logger->warning('Skipping malformed line in webhook payload.', [
-                        'parser' => static::class,
-                        'line' => mb_substr($line, 0, 200),
-                        'error' => $e->getMessage(),
-                    ]);
+        foreach ($lines as $index => $line) {
+            try {
+                $transactions[] = $this->parseLine($line);
+            } catch (\Throwable $e) {
+                $errors[] = [
+                    'line' => $index + 1,
+                    'input' => mb_substr($line, 0, 200),
+                    'error' => $e->getMessage(),
+                ];
+            }
+        }
 
-                    return null;
-                }
-            })
-            ->filter();
+        return new ParseResult(collect($transactions), $errors);
     }
 
     /** @return list<string> */
@@ -68,14 +58,5 @@ abstract class AbstractBankParser implements BankParserInterface
         }
 
         return $date;
-    }
-
-    private function resolveLogger(): LoggerInterface
-    {
-        if (function_exists('app') && app()->bound(LoggerInterface::class)) {
-            return app(LoggerInterface::class);
-        }
-
-        return new NullLogger;
     }
 }
