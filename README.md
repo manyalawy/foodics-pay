@@ -1,62 +1,44 @@
 # Foodics Pay — Online Wallet
 
-An online wallet application that receives money via bank webhooks (multiple formats) and generates XML payment requests for outgoing transfers. Built with Laravel, Redis, and Horizon for production-grade scalability.
+Laravel application that receives money via bank webhooks (multiple formats) and generates XML payment requests for outgoing transfers. Built for scalability with Redis/Horizon queue processing.
 
-## Architecture Overview
+**Key highlights:** queue-first ingestion, three-layer auth, idempotency, strategy-pattern parsers, circuit breaker resilience.
 
-```
-Bank Webhook → Auth Middleware → Queue Job → Parser → Database
-                (API Key + HMAC + Client Token)     (insertOrIgnore)
-
-Transfer Request → Validation → DTO → XML Builder → XML Response
-```
-
-### Key Design Decisions
-
-- **Strategy Pattern for Parsers**: Each bank has its own parser implementing `BankParserInterface`. Adding a new bank requires only a new parser class and a one-line registration in `BankParserFactory`.
-- **Queue-First Ingestion**: Webhooks are accepted immediately (202) and processed asynchronously via Redis/Horizon. This ensures low latency for webhook responses even under heavy load.
-- **Idempotency**: Transactions use a composite unique constraint `(bank_id, reference)` with `insertOrIgnore()` for safe duplicate handling.
-- **Three-Layer Authentication**: API key (bank identity) → HMAC-SHA256 (payload integrity) → Client token (client identity).
-- **Security**: API keys stored as SHA-256 hashes, webhook secrets encrypted at rest via Laravel's `encrypted` cast.
-
-## Setup
-
-### Requirements
+## Tech Stack
 
 - PHP 8.2+
+- Laravel 12
 - MySQL 8.0+
 - Redis 6.0+
-- Composer
+- Laravel Horizon 5.45+ (queue dashboard & worker)
+- Predis 3.4+ (Redis client)
 
-### Installation
+## Setup / Installation
 
 ```bash
-# Start MySQL and Redis
-docker-compose up -d
-
-# Install dependencies
+git clone <repo-url> && cd foodics-pay
 composer install
-
-# Configure environment
 cp .env.example .env
 php artisan key:generate
+```
 
-# Run migrations and seed
-php artisan migrate --seed
+Configure your `.env` with database and Redis credentials, then:
 
-# Start Horizon (queue worker)
+```bash
+php artisan migrate
+php artisan db:seed
 php artisan horizon
 ```
 
 ### Seeded Test Credentials
 
-| Resource | Value |
-|----------|-------|
-| Foodics Bank API Key | `foodics-api-key-2025` |
-| Foodics Webhook Secret | `foodics-webhook-secret-2025` |
-| Acme Bank API Key | `acme-api-key-2025` |
-| Acme Webhook Secret | `acme-webhook-secret-2025` |
-| Client Token | `client-webhook-token-2025` |
+| Resource               | Value                          |
+|------------------------|--------------------------------|
+| Foodics Bank API Key   | `foodics-api-key-2025`         |
+| Foodics Webhook Secret | `foodics-webhook-secret-2025`  |
+| Acme Bank API Key      | `acme-api-key-2025`            |
+| Acme Webhook Secret    | `acme-webhook-secret-2025`     |
+| Client Token           | `client-webhook-token-2025`    |
 
 ### Example Requests
 
@@ -89,13 +71,35 @@ curl -X POST http://localhost:8000/api/transfers \
   }'
 ```
 
-### Running Tests
+## Architecture Overview
 
-```bash
-php artisan test
+```
+Webhook Request
+  │
+  ▼
+VerifyBankWebhook Middleware
+  ├─ 1. Payload size check (413 if too large)
+  ├─ 2. API key lookup via SHA-256 hash (401 if invalid)
+  ├─ 3. HMAC-SHA256 signature verification (403 if mismatch)
+  └─ 4. Client token lookup via SHA-256 hash (401 if invalid)
+  │
+  ▼
+WebhookController → returns 202 Accepted immediately
+  │
+  ▼
+ProcessWebhookJob (Redis/Horizon queue)
+  ├─ Parse raw body via bank-specific parser (strategy pattern)
+  ├─ Batch insert transactions in chunks of 500
+  └─ insertOrIgnore() for idempotency (unique: bank_id + reference)
 ```
 
-Tests use SQLite in-memory database and sync queue driver — no external services needed.
+```
+Transfer Request → Validation → PaymentRequestData DTO → XML Builder → XML Response
+```
+
+- **Strategy Pattern** — each bank implements `BankParserInterface` via `AbstractBankParser`
+- **Queue-First Ingestion** — webhooks return 202 immediately, processed asynchronously
+- **Idempotency** — composite unique constraint `(bank_id, reference)` with `insertOrIgnore()`
 
 ## API Endpoints
 
@@ -104,46 +108,69 @@ Tests use SQLite in-memory database and sync queue driver — no external servic
 Receives bank webhook data. Requires three authentication headers.
 
 **Headers:**
-| Header | Description |
-|--------|-------------|
-| `Authorization` | `Bearer {api_key}` — identifies the bank |
-| `X-Signature` | HMAC-SHA256 of request body using bank's webhook secret |
-| `X-Client-Token` | Identifies the client receiving funds |
 
-**Body:** Raw text in bank-specific format (see Bank Formats below).
+| Header          | Description                                                    |
+|-----------------|----------------------------------------------------------------|
+| `Authorization` | `Bearer {api_key}` — identifies the bank                      |
+| `X-Signature`   | HMAC-SHA256 of request body using the bank's webhook secret    |
+| `X-Client-Token`| Identifies the client receiving funds                          |
 
-**Response:** `202 Accepted`
+**Body:** Raw text in bank-specific format (one transaction per line).
+
+**Responses:**
+- `202 Accepted` — webhook queued for processing
+- `401 Unauthorized` — invalid API key or client token
+- `403 Forbidden` — invalid HMAC signature
+- `413 Payload Too Large` — body exceeds `max_body_size`
 
 ### POST /api/transfers
 
 Generates an XML payment request.
 
 **Body (JSON):**
-```json
-{
-    "reference": "REF001",
-    "date": "2025-06-15",
-    "amount": 1500.00,
-    "currency": "SAR",
-    "sender_account": "SA1234567890",
-    "receiver_bank_code": "RJHI",
-    "receiver_account": "SA0987654321",
-    "beneficiary_name": "John Doe",
-    "notes": ["Payment for invoice 123"],
-    "payment_type": 1,
-    "charge_details": "OUR"
-}
-```
 
-Optional fields: `notes` (omitted from XML if empty), `payment_type` (omitted if 99), `charge_details` (omitted if "SHA").
+| Field               | Type    | Required | Default |
+|---------------------|---------|----------|---------|
+| `reference`         | string  | yes      |         |
+| `date`              | string  | yes      | (Y-m-d) |
+| `amount`            | numeric | yes      | (min 0.01) |
+| `currency`          | string  | yes      | (3 chars) |
+| `sender_account`    | string  | yes      |         |
+| `receiver_bank_code`| string  | yes      |         |
+| `receiver_account`  | string  | yes      |         |
+| `beneficiary_name`  | string  | yes      |         |
+| `notes`             | array   | no       | `[]`    |
+| `payment_type`      | integer | no       | `99`    |
+| `charge_details`    | string  | no       | `"SHA"` |
+
+Optional fields omitted from XML when at default values: `notes` (empty), `payment_type` (99), `charge_details` ("SHA").
 
 **Response:** `200 OK` with `Content-Type: application/xml`
 
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<PaymentRequest>
+  <Reference>REF001</Reference>
+  <Date>2025-06-15</Date>
+  <Amount>1500.00</Amount>
+  <Currency>SAR</Currency>
+  <SenderAccount>SA1234567890</SenderAccount>
+  <ReceiverBankCode>RJHI</ReceiverBankCode>
+  <ReceiverAccount>SA0987654321</ReceiverAccount>
+  <BeneficiaryName>John Doe</BeneficiaryName>
+  <Notes>
+    <Note>Payment for invoice #123</Note>
+  </Notes>
+</PaymentRequest>
+```
+
 ### Ingestion Control
 
-- `POST /api/ingestion/pause` — Pauses webhook processing
-- `POST /api/ingestion/resume` — Resumes webhook processing
-- `GET /api/ingestion/status` — Returns `{"paused": true|false}`
+```
+POST /api/ingestion/pause    → {"message": "Ingestion paused."}
+POST /api/ingestion/resume   → {"message": "Ingestion resumed."}
+GET  /api/ingestion/status   → {"paused": true|false}
+```
 
 Also available as artisan commands:
 ```bash
@@ -151,12 +178,25 @@ php artisan ingestion:pause
 php artisan ingestion:resume
 ```
 
-## Bank Formats
+## Authentication
 
-### Foodics Bank
+The `VerifyBankWebhook` middleware applies a four-step auth chain to webhook requests:
+
+1. **Payload Size** — rejects bodies exceeding `max_body_size` (default 1 MB) with `413`
+2. **API Key** — `Authorization: Bearer <key>` hashed with SHA-256, looked up in `banks.api_key_hash` (cached 5 min); `401` if invalid
+3. **HMAC-SHA256 Signature** — `X-Signature` header verified against `hash_hmac('sha256', body, webhook_secret)` using `hash_equals()` for timing-attack protection; `403` if mismatch
+4. **Client Token** — `X-Client-Token` header hashed with SHA-256, looked up in `clients.webhook_token_hash` (cached 5 min); `401` if invalid
+
+On success, `bank` and `client` models are attached to the request as attributes.
+
+## Bank Parsers
+
+Each bank implements `BankParserInterface` via `AbstractBankParser`. Parsers are registered in `config/banks.php`.
+
+### Foodics Format
 
 ```
-{YYYYMMDD}{amount}#{reference}#{key/value/key/value}
+{YYYYMMDD}{amount}#{reference}#{key/value/key/value...}
 ```
 
 Example:
@@ -164,7 +204,12 @@ Example:
 20250615156,50#202506159000001#note/debt payment march/internal_reference/A462JE81
 ```
 
-### Acme Bank
+- Date: first 8 characters (YYYYMMDD)
+- Amount: remaining characters before first `#` (comma as decimal separator)
+- Reference: second segment
+- Metadata: optional third segment (slash-separated key/value pairs)
+
+### Acme Format
 
 ```
 {amount}//{reference}//{YYYYMMDD}
@@ -175,74 +220,158 @@ Example:
 156,50//202506159000001//20250615
 ```
 
-Both formats: amounts use comma as decimal separator, multiple transactions separated by newlines.
+- Amount: first segment (comma as decimal separator)
+- Reference: second segment
+- Date: third segment (YYYYMMDD)
 
-## Adding a New Bank
+Both formats use comma as decimal separator. Multiple transactions are separated by newlines.
 
-1. Create a parser class implementing `BankParserInterface`:
+### Adding a New Bank
+
+1. Create a parser in `app/Services/Parsers/` extending `AbstractBankParser`
+2. Implement `parseLine(string $line): TransactionData`
+3. Register in `config/banks.php` parsers array:
+   ```php
+   'parsers' => [
+       'foodics' => FoodicsBankParser::class,
+       'acme'    => AcmeBankParser::class,
+       'newbank' => NewBankParser::class,
+   ],
+   ```
+4. Create a bank record in the database with the new bank's credentials
+5. Add tests in `tests/Unit/`
+
+## Queue Processing
+
+- **Job:** `ProcessWebhookJob` dispatched to the `webhooks` queue
+- **Retries:** 3 attempts with backoff: 10s, 30s, 60s
+- **Batch inserts:** chunks of 500 with `insertOrIgnore()` for idempotency
+- **Ingestion pause:** when `ingestion_paused` cache flag is set, job self-releases after 30s
+- **Circuit breaker:** after N failures (default 10) within M minutes (default 5), ingestion auto-pauses and logs a critical alert. Resume with `POST /api/ingestion/resume` or `php artisan ingestion:resume`.
+
+### Parse Error Tracking
+
+The `ParseResult` DTO collects per-line errors with line number, truncated input, and error message. When the fraction of failed lines exceeds `malformed_line_alert_threshold` (default 50%), an error-level log is emitted.
+
+## Configuration Reference
+
+### config/webhook.php
+
+| Key | Env Variable | Default | Description |
+|-----|-------------|---------|-------------|
+| `max_body_size` | `WEBHOOK_MAX_BODY_SIZE` | `1048576` (1 MB) | Max webhook payload in bytes |
+| `circuit_breaker_threshold` | `CIRCUIT_BREAKER_THRESHOLD` | `10` | Failures before auto-pause |
+| `circuit_breaker_window_minutes` | `CIRCUIT_BREAKER_WINDOW_MINUTES` | `5` | Sliding window in minutes |
+| `malformed_line_alert_threshold` | `MALFORMED_LINE_ALERT_THRESHOLD` | `0.5` | Failed-line fraction triggering error log |
+
+### config/banks.php
+
+Maps bank names to parser classes:
 
 ```php
-// app/Services/Parsers/NewBankParser.php
-class NewBankParser implements BankParserInterface
-{
-    public function parse(string $rawBody): Collection
-    {
-        // Parse the bank's specific format
-        // Return Collection of TransactionData DTOs
-    }
-}
-```
-
-2. Register in `BankParserFactory`:
-
-```php
-private array $parsers = [
+'parsers' => [
     'foodics' => FoodicsBankParser::class,
-    'acme' => AcmeBankParser::class,
-    'newbank' => NewBankParser::class,  // Add this line
-];
+    'acme'    => AcmeBankParser::class,
+],
 ```
 
-3. Create a bank record in the database with the new bank's credentials.
+## Database Schema
+
+### banks
+
+| Column         | Type        | Constraints              |
+|----------------|-------------|--------------------------|
+| `id`           | bigint      | PK, auto-increment       |
+| `name`         | string      | unique                   |
+| `api_key_hash` | string(64)  | unique (SHA-256)         |
+| `webhook_secret` | text      | encrypted at rest        |
+| `created_at`   | timestamp   |                          |
+| `updated_at`   | timestamp   |                          |
+
+### clients
+
+| Column              | Type       | Constraints              |
+|---------------------|------------|--------------------------|
+| `id`                | bigint     | PK, auto-increment       |
+| `name`              | string     |                          |
+| `webhook_token_hash`| string(64) | unique (SHA-256)         |
+| `created_at`        | timestamp  |                          |
+| `updated_at`        | timestamp  |                          |
+
+### transactions
+
+| Column      | Type          | Constraints                       |
+|-------------|---------------|-----------------------------------|
+| `id`        | bigint        | PK, auto-increment                |
+| `client_id` | bigint        | FK → clients, cascade delete      |
+| `bank_id`   | bigint        | FK → banks, cascade delete        |
+| `reference` | string        |                                   |
+| `amount`    | decimal(15,2) |                                   |
+| `date`      | date          |                                   |
+| `metadata`  | json          | nullable                          |
+| `created_at`| timestamp     |                                   |
+| `updated_at`| timestamp     |                                   |
+
+**Unique constraint:** `(bank_id, reference)` — idempotency key
 
 ## Project Structure
 
 ```
 app/
-├── Contracts/BankParserInterface.php      # Parser contract
-├── DTOs/
-│   ├── TransactionData.php                # Webhook transaction DTO
-│   └── PaymentRequestData.php             # Transfer request DTO
+├── Contracts/                    # Interfaces (BankParserInterface)
+├── DTOs/                         # TransactionData, PaymentRequestData, ParseResult
 ├── Http/
-│   ├── Controllers/Api/
-│   │   ├── WebhookController.php          # Webhook endpoint
-│   │   ├── TransferController.php         # XML transfer endpoint
-│   │   └── IngestionController.php        # Pause/resume control
-│   ├── Middleware/
-│   │   └── VerifyBankWebhook.php          # Three-layer auth
-│   └── Requests/
-│       └── TransferRequest.php            # Transfer validation
-├── Jobs/
-│   └── ProcessWebhookJob.php              # Async webhook processing
-├── Models/
-│   ├── Bank.php
-│   ├── Client.php
-│   └── Transaction.php
+│   ├── Controllers/Api/          # WebhookController, TransferController, IngestionController
+│   ├── Middleware/                # VerifyBankWebhook
+│   └── Requests/                 # TransferRequest
+├── Jobs/                         # ProcessWebhookJob
+├── Models/                       # Bank, Client, Transaction
 └── Services/
-    ├── Parsers/
-    │   ├── BankParserFactory.php           # Resolves parser by bank name
-    │   ├── FoodicsBankParser.php
-    │   └── AcmeBankParser.php
-    └── PaymentXmlBuilder.php              # XML generation
+    ├── Parsers/                  # AbstractBankParser, FoodicsBankParser, AcmeBankParser, BankParserFactory
+    └── PaymentXmlBuilder.php     # XML generation for transfers
+config/
+├── banks.php                     # Parser class map
+├── webhook.php                   # Webhook & circuit breaker config
+└── horizon.php                   # Queue worker config
+database/
+├── migrations/                   # Schema definitions
+└── seeders/                      # Demo data
+routes/
+├── api.php                       # Route loader
+├── webhooks.php                  # POST /api/webhooks
+├── transfers.php                 # POST /api/transfers
+└── ingestion.php                 # Ingestion control routes
+tests/
+├── Unit/                         # Parser, job, DTO, XML builder tests
+├── Feature/                      # Controller & integration tests
+└── Performance/                  # Load & idempotency tests
 ```
 
-## Scalability & Reliability
+## Development
 
-- **Horizon** manages Redis-backed queue workers with auto-scaling
-- **Chunked inserts** (batches of 500) prevent memory issues on large webhooks
-- **Cached lookups** for bank and client authentication reduce database load
-- **Pause/resume** mechanism allows controlled ingestion during maintenance
-- **Retry with backoff** — failed jobs retry 3 times (after 10s, 30s, 60s) before moving to `failed_jobs` table
-- **Failed job recovery** — inspect with `php artisan queue:failed`, retry with `php artisan queue:retry {id}`
-- **Circuit breaker** — if 10 jobs fail within 5 minutes, ingestion auto-pauses to prevent cascading failures. Threshold is configurable via `CIRCUIT_BREAKER_THRESHOLD` env variable. Resume with `php artisan ingestion:resume`
-- Performance tested: 1,000 transactions process in < 1 second
+```bash
+php artisan test                    # Run all tests
+php artisan test --filter=ClassName # Run specific test
+./vendor/bin/pint                   # Format code (Laravel Pint)
+./vendor/bin/pint --test            # Check formatting
+./vendor/bin/phpstan analyse        # Static analysis (Larastan)
+php artisan horizon                 # Start queue worker
+```
+
+## Testing
+
+Tests span Unit, Feature, and Performance suites using SQLite in-memory for speed (no external services needed).
+
+- **Unit tests** — parsers, DTOs, XML builder, job logic
+- **Feature tests** — webhook auth chain, transfer endpoint, ingestion control, ingestion pause behavior
+- **Performance tests** — 1,000 transactions processed under 2 seconds, idempotency under concurrent load
+
+## Security
+
+- **API keys** stored as SHA-256 hashes, never in plaintext
+- **Webhook secrets** encrypted at rest via Laravel's `encrypted` cast
+- **HMAC verification** with `hash_equals()` for timing-attack protection
+- **Client tokens** stored as SHA-256 hashes
+- **XML escaping** via `htmlspecialchars(ENT_XML1)` to prevent injection
+- **Payload size limits** to prevent abuse (default 1 MB)
+- **Composite unique constraints** for transaction idempotency
