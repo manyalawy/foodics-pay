@@ -14,7 +14,7 @@ return new class extends Migration
         Schema::create('clients', function (Blueprint $table) {
             $table->id();
             $table->string('name');
-            $table->string('webhook_token', 64)->unique();
+            $table->string('webhook_token_hash', 64)->unique();
             $table->timestamps();
         });
     }

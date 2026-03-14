@@ -15,7 +15,7 @@ class ClientFactory extends Factory
     {
         return [
             'name' => $this->faker->company(),
-            'webhook_token' => Str::random(64),
+            'webhook_token_hash' => hash('sha256', Str::random(64)),
         ];
     }
 }

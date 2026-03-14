@@ -12,7 +12,7 @@ class Client extends Model
 
     protected $fillable = [
         'name',
-        'webhook_token',
+        'webhook_token_hash',
     ];
 
     public function transactions(): HasMany

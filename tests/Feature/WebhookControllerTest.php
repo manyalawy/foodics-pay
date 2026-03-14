@@ -18,6 +18,8 @@ class WebhookControllerTest extends TestCase
 
     private string $apiKey = 'test-api-key-12345';
 
+    private string $clientToken = 'test-client-token-12345';
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -28,7 +30,9 @@ class WebhookControllerTest extends TestCase
             'webhook_secret' => 'test-webhook-secret',
         ]);
 
-        $this->client = Client::factory()->create();
+        $this->client = Client::factory()->create([
+            'webhook_token_hash' => hash('sha256', $this->clientToken),
+        ]);
     }
 
     private function sendWebhook(string $body, array $headers = []): TestResponse
@@ -36,7 +40,7 @@ class WebhookControllerTest extends TestCase
         $defaultHeaders = [
             'Authorization' => "Bearer {$this->apiKey}",
             'X-Signature' => hash_hmac('sha256', $body, 'test-webhook-secret'),
-            'X-Client-Token' => $this->client->webhook_token,
+            'X-Client-Token' => $this->clientToken,
         ];
 
         $mergedHeaders = array_merge($defaultHeaders, $headers);
@@ -119,7 +123,7 @@ class WebhookControllerTest extends TestCase
         $server = $this->transformHeadersToServerVars([
             'Authorization' => 'Bearer acme-api-key',
             'X-Signature' => $signature,
-            'X-Client-Token' => $this->client->webhook_token,
+            'X-Client-Token' => $this->clientToken,
         ]);
 
         $response = $this->call('POST', '/api/webhooks', [], [], [], $server, $body);

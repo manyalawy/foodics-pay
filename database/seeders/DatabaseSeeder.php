@@ -37,7 +37,7 @@ class DatabaseSeeder extends Seeder
 
         $client = Client::create([
             'name' => 'Foodics Pay Demo Client',
-            'webhook_token' => 'client-webhook-token-2025',
+            'webhook_token_hash' => hash('sha256', 'client-webhook-token-2025'),
         ]);
 
         Transaction::create([

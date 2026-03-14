@@ -68,10 +68,12 @@ class VerifyBankWebhook
             return null;
         }
 
+        $hash = hash('sha256', $token);
+
         return Cache::remember(
-            "client:token:{$token}",
+            "client:token:{$hash}",
             now()->addMinutes(5),
-            fn () => Client::where('webhook_token', $token)->first()
+            fn () => Client::where('webhook_token_hash', $hash)->first()
         );
     }
 }
