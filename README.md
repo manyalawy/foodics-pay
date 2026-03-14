@@ -145,6 +145,8 @@ Generates an XML payment request.
 
 Optional fields omitted from XML when at default values: `notes` (empty), `payment_type` (99), `charge_details` ("SHA").
 
+**Note:** No authentication, authorization, or database logic was implemented for the transfer endpoint, as it was not in the scope of the assignment.
+
 **Response:** `200 OK` with `Content-Type: application/xml`
 
 ```xml
