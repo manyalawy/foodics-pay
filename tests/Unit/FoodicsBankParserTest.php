@@ -79,4 +79,31 @@ class FoodicsBankParserTest extends TestCase
 
         $this->assertCount(2, $result);
     }
+
+    public function test_skips_malformed_lines(): void
+    {
+        $body = "20250615156,50#REF001#\nBADLINE\n20250616200,00#REF002#";
+
+        $result = $this->parser->parse($body);
+
+        $this->assertCount(2, $result);
+    }
+
+    public function test_skips_lines_with_negative_amounts(): void
+    {
+        $body = '20250615-100,00#REF001#';
+
+        $result = $this->parser->parse($body);
+
+        $this->assertCount(0, $result);
+    }
+
+    public function test_skips_lines_with_invalid_dates(): void
+    {
+        $body = '20251332100,00#REF001#';
+
+        $result = $this->parser->parse($body);
+
+        $this->assertCount(0, $result);
+    }
 }

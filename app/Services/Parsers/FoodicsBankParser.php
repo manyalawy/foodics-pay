@@ -2,36 +2,44 @@
 
 namespace App\Services\Parsers;
 
-use App\Contracts\BankParserInterface;
 use App\DTOs\TransactionData;
-use Carbon\CarbonImmutable;
-use Illuminate\Support\Collection;
 
-class FoodicsBankParser implements BankParserInterface
+/**
+ * Parses Foodics Bank webhook format.
+ *
+ * Line format: {YYYYMMDD}{amount_with_comma}#{reference}#{key/value/key/value...}
+ * Example:     20250615156,50#202506159000001#note/debt payment march/internal_reference/A462JE81
+ */
+class FoodicsBankParser extends AbstractBankParser
 {
-    public function parse(string $rawBody): Collection
+    protected function parseLine(string $line): TransactionData
     {
-        $lines = array_filter(explode("\n", $rawBody), fn (string $line) => trim($line) !== '');
+        $parts = explode('#', $line);
 
-        return collect($lines)->map(function (string $line) {
-            $parts = explode('#', $line);
+        if (count($parts) < 2) {
+            throw new \InvalidArgumentException('Line must contain at least 2 segments separated by #');
+        }
 
-            $dateAmount = $parts[0];
-            $reference = $parts[1];
-            $metadataRaw = $parts[2] ?? '';
+        $dateAmount = $parts[0];
+        $reference = $parts[1];
+        $metadataRaw = $parts[2] ?? '';
 
-            $date = CarbonImmutable::createFromFormat('Ymd', substr($dateAmount, 0, 8));
-            $amount = str_replace(',', '.', substr($dateAmount, 8));
+        if (strlen($dateAmount) < 9) {
+            throw new \InvalidArgumentException('Date+amount segment too short');
+        }
 
-            $metadata = $this->parseMetadata($metadataRaw);
+        $date = $this->validateDate(substr($dateAmount, 0, 8));
+        $amount = str_replace(',', '.', substr($dateAmount, 8));
+        $this->validateAmount($amount);
 
-            return new TransactionData(
-                reference: $reference,
-                amount: $amount,
-                date: $date,
-                metadata: $metadata,
-            );
-        });
+        $metadata = $this->parseMetadata($metadataRaw);
+
+        return new TransactionData(
+            reference: $reference,
+            amount: $amount,
+            date: $date,
+            metadata: $metadata,
+        );
     }
 
     private function parseMetadata(string $raw): array

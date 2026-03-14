@@ -2,29 +2,34 @@
 
 namespace App\Services\Parsers;
 
-use App\Contracts\BankParserInterface;
 use App\DTOs\TransactionData;
-use Carbon\CarbonImmutable;
-use Illuminate\Support\Collection;
 
-class AcmeBankParser implements BankParserInterface
+/**
+ * Parses Acme Bank webhook format.
+ *
+ * Line format: {amount_with_comma}//{reference}//{YYYYMMDD}
+ * Example:     156,50//202506159000001//20250615
+ */
+class AcmeBankParser extends AbstractBankParser
 {
-    public function parse(string $rawBody): Collection
+    protected function parseLine(string $line): TransactionData
     {
-        $lines = array_filter(explode("\n", $rawBody), fn (string $line) => trim($line) !== '');
+        $parts = explode('//', $line);
 
-        return collect($lines)->map(function (string $line) {
-            $parts = explode('//', $line);
+        if (count($parts) < 3) {
+            throw new \InvalidArgumentException('Line must contain 3 segments separated by //');
+        }
 
-            $amount = str_replace(',', '.', $parts[0]);
-            $reference = $parts[1];
-            $date = CarbonImmutable::createFromFormat('Ymd', $parts[2]);
+        $amount = str_replace(',', '.', $parts[0]);
+        $this->validateAmount($amount);
 
-            return new TransactionData(
-                reference: $reference,
-                amount: $amount,
-                date: $date,
-            );
-        });
+        $reference = $parts[1];
+        $date = $this->validateDate($parts[2]);
+
+        return new TransactionData(
+            reference: $reference,
+            amount: $amount,
+            date: $date,
+        );
     }
 }
