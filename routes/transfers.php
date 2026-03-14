@@ -3,4 +3,5 @@
 use App\Http\Controllers\Api\TransferController;
 use Illuminate\Support\Facades\Route;
 
-Route::post('/transfers', [TransferController::class, 'store']);
+Route::post('/transfers', [TransferController::class, 'store'])
+    ->middleware('throttle:transfers');
