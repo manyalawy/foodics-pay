@@ -61,17 +61,16 @@ class ProcessWebhookJob implements ShouldQueue
     public function failed(Throwable $exception): void
     {
         $windowMinutes = config('webhook.circuit_breaker_window_minutes', 5);
-        $failures = Cache::increment('webhook_failures');
+        $cacheKey = 'webhook_failures';
 
-        if ($failures === 1) {
-            Cache::put('webhook_failures', 1, now()->addMinutes($windowMinutes));
-        }
+        Cache::add($cacheKey, 0, now()->addMinutes($windowMinutes));
+        $failures = Cache::increment($cacheKey);
 
         $threshold = config('webhook.circuit_breaker_threshold', 10);
 
         if ($failures >= $threshold) {
             Cache::put('ingestion_paused', true);
-            Cache::forget('webhook_failures');
+            Cache::forget($cacheKey);
             Log::critical("Circuit breaker triggered: webhook ingestion paused after {$failures} failures in {$windowMinutes} minutes.");
         }
     }
