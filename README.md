@@ -20,6 +20,7 @@ git clone <repo-url> && cd foodics-pay
 composer install
 cp .env.example .env
 php artisan key:generate
+docker compose up -d    # starts MySQL and Redis
 ```
 
 Configure your `.env` with database and Redis credentials, then:
