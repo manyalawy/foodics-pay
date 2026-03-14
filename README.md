@@ -27,7 +27,8 @@ Configure your `.env` with database and Redis credentials, then:
 ```bash
 php artisan migrate
 php artisan db:seed
-php artisan horizon
+php artisan serve       # starts the web server at http://localhost:8000
+php artisan horizon     # run in a separate terminal — processes queued jobs
 ```
 
 ### Seeded Test Credentials
