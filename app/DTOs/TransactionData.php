@@ -6,6 +6,7 @@ use Carbon\CarbonImmutable;
 
 class TransactionData
 {
+    /** @param array<string, string> $metadata */
     public function __construct(
         public readonly string $reference,
         public readonly string $amount,

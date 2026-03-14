@@ -2,12 +2,14 @@
 
 namespace App\Models;
 
+use Database\Factories\TransactionFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Transaction extends Model
 {
+    /** @use HasFactory<TransactionFactory> */
     use HasFactory;
 
     protected $fillable = [
@@ -28,11 +30,13 @@ class Transaction extends Model
         ];
     }
 
+    /** @return BelongsTo<Client, $this> */
     public function client(): BelongsTo
     {
         return $this->belongsTo(Client::class);
     }
 
+    /** @return BelongsTo<Bank, $this> */
     public function bank(): BelongsTo
     {
         return $this->belongsTo(Bank::class);

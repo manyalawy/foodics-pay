@@ -42,6 +42,7 @@ class FoodicsBankParser extends AbstractBankParser
         );
     }
 
+    /** @return array<string, string> */
     private function parseMetadata(string $raw): array
     {
         if (trim($raw) === '') {

@@ -6,6 +6,7 @@ use App\Http\Requests\TransferRequest;
 
 class PaymentRequestData
 {
+    /** @param list<string> $notes */
     public function __construct(
         public readonly string $reference,
         public readonly string $date,
