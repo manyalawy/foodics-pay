@@ -149,19 +149,25 @@ Optional fields omitted from XML when at default values: `notes` (empty), `payme
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
-<PaymentRequest>
-  <Reference>REF001</Reference>
-  <Date>2025-06-15</Date>
-  <Amount>1500.00</Amount>
-  <Currency>SAR</Currency>
-  <SenderAccount>SA1234567890</SenderAccount>
-  <ReceiverBankCode>RJHI</ReceiverBankCode>
-  <ReceiverAccount>SA0987654321</ReceiverAccount>
-  <BeneficiaryName>John Doe</BeneficiaryName>
+<PaymentRequestMessage>
+  <TransferInfo>
+    <Reference>REF001</Reference>
+    <Date>2025-06-15</Date>
+    <Amount>1500.00</Amount>
+    <Currency>SAR</Currency>
+  </TransferInfo>
+  <SenderInfo>
+    <AccountNumber>SA1234567890</AccountNumber>
+  </SenderInfo>
+  <ReceiverInfo>
+    <BankCode>RJHI</BankCode>
+    <AccountNumber>SA0987654321</AccountNumber>
+    <BeneficiaryName>John Doe</BeneficiaryName>
+  </ReceiverInfo>
   <Notes>
     <Note>Payment for invoice #123</Note>
   </Notes>
-</PaymentRequest>
+</PaymentRequestMessage>
 ```
 
 ### Ingestion Control

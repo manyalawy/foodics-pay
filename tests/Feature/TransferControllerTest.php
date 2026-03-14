@@ -26,7 +26,7 @@ class TransferControllerTest extends TestCase
 
         $response->assertStatus(200);
         $response->assertHeader('Content-Type', 'application/xml');
-        $this->assertStringContainsString('<PaymentRequest>', $response->getContent());
+        $this->assertStringContainsString('<PaymentRequestMessage>', $response->getContent());
         $this->assertStringContainsString('<Reference>REF001</Reference>', $response->getContent());
     }
 

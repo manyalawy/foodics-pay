@@ -38,14 +38,23 @@ class PaymentXmlBuilderTest extends TestCase
         $data = $this->makePaymentData();
         $xml = $this->builder->build($data);
 
+        $this->assertStringContainsString('<PaymentRequestMessage>', $xml);
+        $this->assertStringContainsString('<TransferInfo>', $xml);
         $this->assertStringContainsString('<Reference>REF001</Reference>', $xml);
         $this->assertStringContainsString('<Date>2025-06-15</Date>', $xml);
         $this->assertStringContainsString('<Amount>1500.00</Amount>', $xml);
         $this->assertStringContainsString('<Currency>SAR</Currency>', $xml);
-        $this->assertStringContainsString('<SenderAccount>SA1234567890</SenderAccount>', $xml);
-        $this->assertStringContainsString('<ReceiverBankCode>RJHI</ReceiverBankCode>', $xml);
-        $this->assertStringContainsString('<ReceiverAccount>SA0987654321</ReceiverAccount>', $xml);
+        $this->assertStringContainsString('<SenderInfo>', $xml);
+        $this->assertStringContainsString('<ReceiverInfo>', $xml);
         $this->assertStringContainsString('<BeneficiaryName>John Doe</BeneficiaryName>', $xml);
+
+        // Verify nesting via XPath
+        $dom = new \DOMDocument;
+        $dom->loadXML($xml);
+        $xpath = new \DOMXPath($dom);
+        $this->assertEquals('SA1234567890', $xpath->query('//SenderInfo/AccountNumber')->item(0)->textContent);
+        $this->assertEquals('RJHI', $xpath->query('//ReceiverInfo/BankCode')->item(0)->textContent);
+        $this->assertEquals('SA0987654321', $xpath->query('//ReceiverInfo/AccountNumber')->item(0)->textContent);
     }
 
     public function test_omits_notes_when_empty(): void

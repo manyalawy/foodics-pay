@@ -13,17 +13,25 @@ class PaymentXmlBuilder
         $dom = new DOMDocument('1.0', 'UTF-8');
         $dom->formatOutput = true;
 
-        $root = $dom->createElement('PaymentRequest');
+        $root = $dom->createElement('PaymentRequestMessage');
         $dom->appendChild($root);
 
-        $this->addElement($dom, $root, 'Reference', $data->reference);
-        $this->addElement($dom, $root, 'Date', $data->date);
-        $this->addElement($dom, $root, 'Amount', $data->amount);
-        $this->addElement($dom, $root, 'Currency', $data->currency);
-        $this->addElement($dom, $root, 'SenderAccount', $data->senderAccount);
-        $this->addElement($dom, $root, 'ReceiverBankCode', $data->receiverBankCode);
-        $this->addElement($dom, $root, 'ReceiverAccount', $data->receiverAccount);
-        $this->addElement($dom, $root, 'BeneficiaryName', $data->beneficiaryName);
+        $transferInfo = $dom->createElement('TransferInfo');
+        $root->appendChild($transferInfo);
+        $this->addElement($dom, $transferInfo, 'Reference', $data->reference);
+        $this->addElement($dom, $transferInfo, 'Date', $data->date);
+        $this->addElement($dom, $transferInfo, 'Amount', $data->amount);
+        $this->addElement($dom, $transferInfo, 'Currency', $data->currency);
+
+        $senderInfo = $dom->createElement('SenderInfo');
+        $root->appendChild($senderInfo);
+        $this->addElement($dom, $senderInfo, 'AccountNumber', $data->senderAccount);
+
+        $receiverInfo = $dom->createElement('ReceiverInfo');
+        $root->appendChild($receiverInfo);
+        $this->addElement($dom, $receiverInfo, 'BankCode', $data->receiverBankCode);
+        $this->addElement($dom, $receiverInfo, 'AccountNumber', $data->receiverAccount);
+        $this->addElement($dom, $receiverInfo, 'BeneficiaryName', $data->beneficiaryName);
 
         if (! empty($data->notes)) {
             $notesElement = $dom->createElement('Notes');
