@@ -17,18 +17,16 @@ Laravel application that receives money via bank webhooks (multiple formats) and
 
 ```bash
 git clone <repo-url> && cd foodics-pay
-composer install
 cp .env.example .env
-docker compose up -d    # starts MySQL and Redis
+docker compose up --build -d
 ```
 
-Configure your `.env` with database and Redis credentials, then:
+This starts all services (app, Horizon, MySQL, Redis), runs migrations automatically, and serves the app at **http://localhost:8000**. The Horizon dashboard is available at **http://localhost:8000/horizon**.
+
+To seed demo data:
 
 ```bash
-php artisan migrate
-php artisan db:seed
-php artisan serve       # starts the web server at http://localhost:8000
-php artisan horizon     # run in a separate terminal — processes queued jobs
+docker compose exec app php artisan db:seed
 ```
 
 ### Seeded Test Credentials
@@ -183,8 +181,8 @@ GET  /api/ingestion/status   → {"paused": true|false}
 
 Also available as artisan commands:
 ```bash
-php artisan ingestion:pause
-php artisan ingestion:resume
+docker compose exec app php artisan ingestion:pause
+docker compose exec app php artisan ingestion:resume
 ```
 
 ## Authentication
@@ -358,14 +356,17 @@ tests/
 
 ## Development
 
+All commands run inside the Docker container:
+
 ```bash
-php artisan test                    # Run all tests
-php artisan test --filter=ClassName # Run specific test
-./vendor/bin/pint                   # Format code (Laravel Pint)
-./vendor/bin/pint --test            # Check formatting
-./vendor/bin/phpstan analyse        # Static analysis (Larastan)
-php artisan horizon                 # Start queue worker
+docker compose exec app php artisan test                    # Run all tests
+docker compose exec app php artisan test --filter=ClassName # Run specific test
+docker compose exec app ./vendor/bin/pint                   # Format code (Laravel Pint)
+docker compose exec app ./vendor/bin/pint --test            # Check formatting
+docker compose exec app ./vendor/bin/phpstan analyse        # Static analysis (Larastan)
 ```
+
+Source code is volume-mounted, so edits on your host reflect instantly in the container. Horizon runs as a separate container and restarts automatically.
 
 ## Testing
 
