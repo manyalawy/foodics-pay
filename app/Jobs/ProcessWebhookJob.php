@@ -48,19 +48,21 @@ class ProcessWebhookJob implements ShouldQueue
             $this->logParseErrors($result, $bank);
         }
 
-        $result->transactions->chunk(500)->each(function ($chunk) {
-            $records = $chunk->map(fn ($tx) => [
-                'client_id' => $this->clientId,
-                'bank_id' => $this->bankId,
-                'reference' => $tx->reference,
-                'amount' => $tx->amount,
-                'date' => $tx->date->toDateString(),
-                'metadata' => $tx->metadata ? json_encode($tx->metadata) : null,
-                'created_at' => now(),
-                'updated_at' => now(),
-            ])->all();
+        DB::transaction(function () use ($result) {
+            $result->transactions->chunk(500)->each(function ($chunk) {
+                $records = $chunk->map(fn ($tx) => [
+                    'client_id' => $this->clientId,
+                    'bank_id' => $this->bankId,
+                    'reference' => $tx->reference,
+                    'amount' => $tx->amount,
+                    'date' => $tx->date->toDateString(),
+                    'metadata' => $tx->metadata ? json_encode($tx->metadata) : null,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ])->all();
 
-            DB::table('transactions')->insertOrIgnore($records);
+                DB::table('transactions')->insertOrIgnore($records);
+            });
         });
     }
 
