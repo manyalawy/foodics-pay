@@ -6,7 +6,7 @@ Laravel application that receives money via bank webhooks (multiple formats) and
 
 ## Tech Stack
 
-- PHP 8.2+
+- PHP 8.4+
 - Laravel 12
 - MySQL 8.0+
 - Redis 6.0+
@@ -19,7 +19,6 @@ Laravel application that receives money via bank webhooks (multiple formats) and
 git clone <repo-url> && cd foodics-pay
 composer install
 cp .env.example .env
-php artisan key:generate
 docker compose up -d    # starts MySQL and Redis
 ```
 
